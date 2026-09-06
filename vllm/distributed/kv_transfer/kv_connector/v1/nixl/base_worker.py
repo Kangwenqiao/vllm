@@ -2852,36 +2852,6 @@ class NixlBaseConnectorWorker:
                 self._send_pending_recv_notifs(req_id)
         return done_req_ids
 
-    def _handle_failed_transfer(self, req_id: str, handle: int | None):
-        """
-        Handle a failed transfer by marking all (logical) blocks as invalid and
-        recording the failure.
-
-        Args:
-            req_id: The request ID.
-            handle: The transfer handle.
-        """
-        if handle is not None:
-            with contextlib.suppress(Exception):
-                self.nixl_wrapper.release_xfer_handle(handle)
-        self.xfer_stats.record_failed_transfer()
-        if self._recving_transfers.get(req_id):
-            self._failed_recv_pending.add(req_id)
-            return
-        self._report_failed_recv(req_id)
-
-    def _report_failed_recv(self, req_id: str) -> None:
-        meta = self._recving_metadata.get(req_id)
-        if meta is None:
-            self._pending_recv_notifs.pop(req_id, None)
-            return
-        if not self._is_hma_required:
-            self._invalid_block_ids.put(
-                {block_id for group in meta.local_block_ids for block_id in group}
-            )
-        self._failed_recv_reqs.put(req_id)
-        self._pending_recv_notifs.pop(req_id, None)
-
     def _send_pending_recv_notifs(self, req_id: str) -> None:
         """Send notifications deferred by split DRAM/VRAM reads."""
         for agent_name, notif_id in self._pending_recv_notifs.pop(req_id, []):
@@ -2926,7 +2896,9 @@ class NixlBaseConnectorWorker:
             self._failed_recv_reqs.put(req_id)
         else:
             if meta := self._recving_metadata.get(req_id):
-                self._invalid_block_ids.put(set(meta.local_block_ids[0]))
+                self._invalid_block_ids.put(
+                    {block_id for group in meta.local_block_ids for block_id in group}
+                )
             self._invalidated_recv_reqs.put(req_id)
         self._pending_recv_notifs.pop(req_id, None)
 
